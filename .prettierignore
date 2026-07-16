@@ -1,0 +1,8 @@
+dist
+coverage
+playwright-report
+test-results
+tmp
+output/playwright
+.playwright-cli
+package-lock.json
