@@ -4,6 +4,10 @@ LoopRoute is a mobile-first progressive web app that creates approximately circu
 
 The app has no accounts, analytics, database, cookies, paid map provider, or server process. It is designed for Cloudflare Pages, OpenFreeMap, OpenStreetMap-derived data, and the free openrouteservice API.
 
+## Live deployment
+
+[Open LoopRoute](https://looproute.pages.dev). The production site is connected to this repository through Cloudflare Pages; every commit to `main` is built, tested by the deployment pipeline, and published automatically.
+
 ## What is included
 
 - Full-viewport MapLibre map using the public OpenFreeMap Liberty/Dark styles and visible attribution
