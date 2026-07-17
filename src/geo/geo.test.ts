@@ -3,9 +3,11 @@ import { haversineDistance, polylineDistance } from "./distance";
 import { elevationGain } from "./elevation";
 import { resampleRoute } from "./resample";
 import { repeatedEdges, routeSimilarity } from "./repeats";
-import { scoreRoute } from "./scoring";
+import { preferenceScore, scoreRoute } from "./scoring";
+import { summarizeSurfaces } from "./surfaces";
 
 const stockholm: [number, number] = [18.0686, 59.3293];
+const noPriorities = { water: false, woodland: false, unpaved: false, quiet: false };
 
 const circle = (radiusMeters = 800, points = 72) =>
   Array.from({ length: points + 1 }, (_, index) => {
@@ -55,14 +57,48 @@ describe("geospatial utilities", () => {
     expect(routeSimilarity(circle(), [...circle()].reverse())).toBeGreaterThan(0.95));
   it("scores a clean circular route as excellent near its target", () => {
     const route = circle();
-    const metrics = scoreRoute(route, polylineDistance(route));
+    const metrics = scoreRoute(route, polylineDistance(route), noPriorities);
     expect(metrics.quality).toBe("excellent");
     expect(metrics.closureDistanceMeters).toBeLessThan(1);
     expect(metrics.overallScore).toBeGreaterThan(80);
   });
   it("returns stable warning codes for localization", () => {
     const route = circle();
-    expect(scoreRoute(route, polylineDistance(route) / 2).warnings).toContain("distanceTolerance");
+    expect(scoreRoute(route, polylineDistance(route) / 2, noPriorities).warnings).toContain(
+      "distanceTolerance",
+    );
+  });
+  it("does not reward a circle over a clean elongated loop", () => {
+    const elongated = circle(800).map(([longitude, latitude]) => [
+      stockholm[0] + (longitude - stockholm[0]) * 3,
+      stockholm[1] + (latitude - stockholm[1]) * 0.55,
+    ]) as [number, number][];
+    const circleMetrics = scoreRoute(circle(), polylineDistance(circle()), noPriorities);
+    const elongatedMetrics = scoreRoute(elongated, polylineDistance(elongated), noPriorities);
+    expect(elongatedMetrics.overallScore).toBe(circleMetrics.overallScore);
+  });
+  it("weights surface segments by travelled distance instead of vertex count", () => {
+    const coordinates: [number, number][] = [
+      [18, 59],
+      [18, 59.001],
+      [18, 59.011],
+    ];
+    const summary = summarizeSurfaces(
+      [
+        [0, 1, 3],
+        [1, 2, 10],
+      ],
+      coordinates,
+    );
+    expect(summary!.unpavedPercent).toBeGreaterThan(85);
+  });
+  it("treats missing preference evidence as neutral and reports its coverage", () => {
+    expect(
+      preferenceScore(
+        { water: true, woodland: false, unpaved: true, quiet: false },
+        { pavedPercent: 20, unpavedPercent: 80, unknownPercent: 0, dominant: "Unpaved" },
+      ),
+    ).toEqual({ score: 65, coverage: 50 });
   });
   it("filters small elevation noise", () =>
     expect(

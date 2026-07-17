@@ -1,5 +1,7 @@
 import { DatabaseZap, ExternalLink, X } from "lucide-react";
+import { useRef, useState } from "react";
 import { APP_NAME } from "../../config/app";
+import { useDialogFocus } from "../../hooks/useDialogFocus";
 import type { Preferences } from "../../services/storage";
 import { t } from "../../i18n";
 
@@ -16,17 +18,29 @@ export function SettingsDialog({
   onClear: () => void;
   onClose: () => void;
 }) {
-  if (!open) return null;
+  const backdropRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLElement>(null);
+  const [confirmingClear, setConfirmingClear] = useState(false);
+  const closeDialog = () => {
+    setConfirmingClear(false);
+    onClose();
+  };
+  useDialogFocus(open, dialogRef, backdropRef, closeDialog);
   const language = preferences.language;
+  const distanceUnitMeters = preferences.units === "mi" ? 1609.344 : 1000;
+  const paceMinutesPerUnit = (preferences.paceSecondsPerKm * (distanceUnitMeters / 1000)) / 60;
+  if (!open) return null;
   return (
     <div
+      ref={backdropRef}
       className="dialog-backdrop"
       role="presentation"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
+        if (event.target === event.currentTarget) closeDialog();
       }}
     >
       <section
+        ref={dialogRef}
         className="dialog settings-dialog"
         role="dialog"
         aria-modal="true"
@@ -37,7 +51,7 @@ export function SettingsDialog({
             <span className="eyebrow">{APP_NAME}</span>
             <h2 id="settings-title">{t(language, "settings")}</h2>
           </div>
-          <button className="icon-button" onClick={onClose} aria-label={t(language, "close")}>
+          <button className="icon-button" onClick={closeDialog} aria-label={t(language, "close")}>
             <X />
           </button>
         </header>
@@ -79,15 +93,18 @@ export function SettingsDialog({
           </select>
         </label>
         <label>
-          {t(language, "pace")}
+          {t(language, preferences.units === "mi" ? "paceMi" : "paceKm")}
           <input
             type="number"
-            min="3"
-            max="15"
+            min={preferences.units === "mi" ? 4.75 : 3}
+            max={preferences.units === "mi" ? 24 : 15}
             step="0.25"
-            value={(preferences.paceSecondsPerKm / 60).toFixed(2)}
+            value={paceMinutesPerUnit.toFixed(2)}
             onChange={(event) =>
-              onChange({ ...preferences, paceSecondsPerKm: Number(event.target.value) * 60 })
+              onChange({
+                ...preferences,
+                paceSecondsPerKm: (Number(event.target.value) * 60) / (distanceUnitMeters / 1000),
+              })
             }
           />
         </label>
@@ -100,10 +117,32 @@ export function SettingsDialog({
             OpenFreeMap <ExternalLink size={14} />
           </a>
         </div>
-        <button className="danger-button" onClick={onClear}>
-          <DatabaseZap size={18} />
-          {t(language, "clearData")}
-        </button>
+        {confirmingClear ? (
+          <div className="clear-confirmation" role="group" aria-labelledby="clear-data-title">
+            <strong id="clear-data-title">{t(language, "clearDataConfirmTitle")}</strong>
+            <p>{t(language, "clearDataConfirmBody")}</p>
+            <div>
+              <button className="secondary-button" onClick={() => setConfirmingClear(false)}>
+                {t(language, "keepData")}
+              </button>
+              <button
+                className="danger-button"
+                onClick={() => {
+                  setConfirmingClear(false);
+                  onClear();
+                }}
+              >
+                <DatabaseZap size={18} />
+                {t(language, "confirmClearData")}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button className="danger-button" onClick={() => setConfirmingClear(true)}>
+            <DatabaseZap size={18} />
+            {t(language, "clearData")}
+          </button>
+        )}
       </section>
     </div>
   );

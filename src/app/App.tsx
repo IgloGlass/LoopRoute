@@ -16,6 +16,7 @@ import {
   Crosshair,
   Download,
   Footprints,
+  Leaf,
   LocateFixed,
   MapPin,
   Menu,
@@ -26,10 +27,19 @@ import {
   Settings,
   Share2,
   Square,
+  Trees,
+  VolumeX,
+  Waves,
   WifiOff,
   X,
 } from "lucide-react";
-import { APP_NAME, DISTANCE_PRESETS, type RouteMode } from "../config/app";
+import {
+  APP_NAME,
+  DISTANCE_PRESETS,
+  routeLabel,
+  type RouteMode,
+  type RoutePriorities,
+} from "../config/app";
 import { distanceToRoute, polylineDistance } from "../geo/distance";
 import { useLivePosition } from "../hooks/useLivePosition";
 import { useNetworkStatus } from "../hooks/useNetworkStatus";
@@ -38,12 +48,18 @@ import { routeWarningText, t } from "../i18n";
 import { OpenRouteServiceRoutingProvider, ApiError } from "../providers/routing/openRouteService";
 import { searchPlaces, type GeocodingResult } from "../providers/geocoding/openRouteService";
 import { downloadGpx } from "../services/gpx";
-import { generateCandidates, randomSeed } from "../services/routeGeneration";
+import {
+  exploratoryShapePoints,
+  generateCandidates,
+  isDistinctCandidate,
+  randomSeed,
+} from "../services/routeGeneration";
 import { buildShareUrl, parseShareUrl, sharePlan } from "../services/share";
 import { clearState, loadState, saveState, type Preferences } from "../services/storage";
-import type { RouteRequest } from "../types/route";
+import type { NormalizedRoute, RouteRequest } from "../types/route";
 import { RouteCard } from "../components/routes/RouteCard";
 import { ElevationProfile } from "../components/routes/ElevationProfile";
+import { DirectionsDialog } from "../components/routes/DirectionsDialog";
 import { SettingsDialog } from "../components/settings/SettingsDialog";
 import { ShareDialog } from "../components/routes/ShareDialog";
 import { appReducer, initialAppState } from "./appTypes";
@@ -61,6 +77,12 @@ const formatDistance = (
   const value = units === "mi" ? meters / 1609.344 : meters / 1000;
   return `${new Intl.NumberFormat(locale === "sv" ? "sv-SE" : "en", { maximumFractionDigits: value < 10 ? 1 : 0 }).format(value)} ${units}`;
 };
+
+const distanceInputValue = (meters: number, units: Preferences["units"]) =>
+  Number((meters / (units === "mi" ? 1609.344 : 1000)).toFixed(1));
+
+const formatProximity = (meters: number, units: Preferences["units"]) =>
+  units === "mi" ? `${Math.round(meters * 3.28084)} ft` : `${Math.round(meters)} m`;
 
 const mapError = (error: unknown, language: Preferences["language"]) => {
   if (error instanceof ApiError) {
@@ -84,11 +106,18 @@ export default function App() {
   const [preferences, setPreferences] = useState<Preferences>(() => ({
     ...stored.preferences,
     ...(sharedPlan
-      ? { units: sharedPlan.units, mode: sharedPlan.mode, avoidSteps: sharedPlan.avoidSteps }
+      ? {
+          units: sharedPlan.units,
+          mode: sharedPlan.mode,
+          avoidSteps: sharedPlan.avoidSteps,
+          routePriorities: sharedPlan.priorities,
+        }
       : {}),
   }));
   const [targetDistance, setTargetDistance] = useState(sharedPlan?.distanceMeters ?? 5000);
-  const [custom, setCustom] = useState(5);
+  const [custom, setCustom] = useState(
+    distanceInputValue(sharedPlan?.distanceMeters ?? 5000, preferences.units),
+  );
   const [setStartMode, setSetStartMode] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -97,16 +126,44 @@ export default function App() {
   const [searching, setSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<GeocodingResult[]>([]);
   const [searchMessage, setSearchMessage] = useState("");
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+  const [activeSuggestion, setActiveSuggestion] = useState(-1);
   const [directionsOpen, setDirectionsOpen] = useState(false);
   const [followMap, setFollowMap] = useState(true);
   const [followError, setFollowError] = useState("");
   const [announcement, setAnnouncement] = useState("");
+  const [generatingAnother, setGeneratingAnother] = useState(false);
+  const [sheetDragOffset, setSheetDragOffset] = useState(0);
+  const [sheetDragging, setSheetDragging] = useState(false);
+  const [undoRoutes, setUndoRoutes] = useState<{
+    candidates: NormalizedRoute[];
+    selectedId?: string;
+  }>();
   const abortRef = useRef<AbortController | undefined>(undefined);
+  const searchAbortRef = useRef<AbortController | undefined>(undefined);
+  const selectedSuggestionQueryRef = useRef("");
+  const undoTimerRef = useRef<number | undefined>(undefined);
   const mapRef = useRef<Map | undefined>(undefined);
+  const sheetScrollRef = useRef<HTMLDivElement | null>(null);
+  const sheetDragRef = useRef({
+    active: false,
+    moved: false,
+    startY: 0,
+    lastY: 0,
+    lastTime: 0,
+    velocity: 0,
+    suppressClick: false,
+  });
   const requestId = useRef(0);
   const online = useNetworkStatus();
   const language = preferences.language;
+  const distanceUnitMeters = preferences.units === "mi" ? 1609.344 : 1000;
+  const maxCustomDistance = 100_000 / distanceUnitMeters;
   const selected = state.candidates.find((route) => route.id === state.selectedId);
+  const bestScore = Math.max(...state.candidates.map((route) => route.metrics.overallScore), 0);
+  const allCandidatesNeedReview =
+    state.candidates.length > 0 &&
+    state.candidates.every((route) => route.metrics.quality === "compromised");
   const following = state.stage === "following";
   const onFollowError = useCallback(
     (reason: string) =>
@@ -197,7 +254,82 @@ export default function App() {
     if (!sharedPlan) locate();
   }, [locate, sharedPlan]);
 
-  useEffect(() => () => abortRef.current?.abort(), []);
+  useEffect(
+    () => () => {
+      abortRef.current?.abort();
+      searchAbortRef.current?.abort();
+      window.clearTimeout(undoTimerRef.current);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (sheetScrollRef.current) sheetScrollRef.current.scrollTop = 0;
+  }, [state.stage]);
+
+  const startSheetDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (!window.matchMedia("(max-width: 699px)").matches) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    sheetDragRef.current = {
+      active: true,
+      moved: false,
+      startY: event.clientY,
+      lastY: event.clientY,
+      lastTime: event.timeStamp,
+      velocity: 0,
+      suppressClick: false,
+    };
+    setSheetDragging(true);
+  };
+
+  const moveSheetDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const drag = sheetDragRef.current;
+    if (!drag.active) return;
+    const delta = event.clientY - drag.startY;
+    const elapsed = Math.max(1, event.timeStamp - drag.lastTime);
+    drag.velocity = (event.clientY - drag.lastY) / elapsed;
+    drag.lastY = event.clientY;
+    drag.lastTime = event.timeStamp;
+    drag.moved ||= Math.abs(delta) > 5;
+    if (drag.moved) event.preventDefault();
+    const directionalDelta = expanded ? Math.max(0, delta) : Math.min(0, delta);
+    setSheetDragOffset(Math.max(-220, Math.min(220, directionalDelta)));
+  };
+
+  const finishSheetDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const drag = sheetDragRef.current;
+    if (!drag.active) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId))
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    const delta = event.clientY - drag.startY;
+    if (drag.moved) {
+      const shouldCollapse = expanded && (delta > 56 || drag.velocity > 0.35);
+      const shouldExpand = !expanded && (delta < -44 || drag.velocity < -0.35);
+      if (shouldCollapse) setExpanded(false);
+      if (shouldExpand) setExpanded(true);
+      drag.suppressClick = true;
+    }
+    drag.active = false;
+    setSheetDragging(false);
+    setSheetDragOffset(0);
+  };
+
+  const cancelSheetDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (event.currentTarget.hasPointerCapture(event.pointerId))
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    sheetDragRef.current.active = false;
+    sheetDragRef.current.suppressClick = true;
+    setSheetDragging(false);
+    setSheetDragOffset(0);
+  };
+
+  const toggleSheet = () => {
+    if (sheetDragRef.current.suppressClick) {
+      sheetDragRef.current.suppressClick = false;
+      return;
+    }
+    setExpanded((value) => !value);
+  };
 
   const changeStart = (coordinate: [number, number]) => {
     abortRef.current?.abort();
@@ -208,15 +340,67 @@ export default function App() {
     });
     setSetStartMode(false);
     setSearchResults([]);
+    setSuggestionsOpen(false);
   };
 
-  const makeBase = (): Omit<RouteRequest, "seed"> | undefined =>
+  const performPlaceSearch = useCallback(
+    async (searchQuery: string, signal: AbortSignal) => {
+      setSearching(true);
+      setSearchMessage("");
+      try {
+        const results = await searchPlaces(searchQuery, state.start, signal);
+        setSearchResults(results);
+        setActiveSuggestion(results.length ? 0 : -1);
+        setSuggestionsOpen(results.length > 0);
+        if (!results.length) setSearchMessage(t(language, "noResults"));
+      } catch (error) {
+        if ((error as Error)?.name !== "AbortError")
+          setSearchMessage(
+            error instanceof Error ? error.message : t(language, "providerUnavailable"),
+          );
+      } finally {
+        if (!signal.aborted) setSearching(false);
+      }
+    },
+    [language, state.start],
+  );
+
+  useEffect(() => {
+    const trimmed = query.trim();
+    if (selectedSuggestionQueryRef.current === query) {
+      selectedSuggestionQueryRef.current = "";
+      return;
+    }
+    if (trimmed.length < 3 || !online || state.candidates.length) {
+      searchAbortRef.current?.abort();
+      return;
+    }
+    searchAbortRef.current?.abort();
+    const timer = window.setTimeout(() => {
+      const controller = new AbortController();
+      searchAbortRef.current = controller;
+      void performPlaceSearch(trimmed, controller.signal);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [online, performPlaceSearch, query, state.candidates.length]);
+
+  const selectSearchResult = (result: GeocodingResult) => {
+    selectedSuggestionQueryRef.current = result.label;
+    setQuery(result.label);
+    setSearchResults([]);
+    setSuggestionsOpen(false);
+    setActiveSuggestion(-1);
+    changeStart([result.longitude, result.latitude]);
+  };
+
+  const makeBase = (): Omit<RouteRequest, "seed" | "roundTripPoints"> | undefined =>
     state.start
       ? {
           start: { longitude: state.start[0], latitude: state.start[1] },
           targetDistanceMeters: targetDistance,
           mode: preferences.mode,
           avoidSteps: preferences.avoidSteps,
+          priorities: preferences.routePriorities,
         }
       : undefined;
 
@@ -236,7 +420,10 @@ export default function App() {
     dispatch({ type: "GENERATING", requestId: id });
     try {
       if (seed) {
-        const route = await provider.route({ ...base, seed }, controller.signal);
+        const route = await provider.route(
+          { ...base, seed, roundTripPoints: exploratoryShapePoints(seed) },
+          controller.signal,
+        );
         dispatch({ type: "RESULTS", requestId: id, candidates: [route] });
       } else {
         const result = await generateCandidates(provider, base, controller.signal);
@@ -268,48 +455,38 @@ export default function App() {
     if (!base || !online) return;
     const controller = new AbortController();
     abortRef.current = controller;
+    setGeneratingAnother(true);
     setAnnouncement(t(language, "generating"));
     try {
-      const route = await provider.route({ ...base, seed: randomSeed() }, controller.signal);
-      const replaceIndex = [...state.candidates]
-        .reverse()
-        .findIndex((candidate) => candidate.id !== state.selectedId);
-      const actualIndex =
-        replaceIndex < 0
-          ? window.confirm(`${t(language, "generateAnother")}?`)
-            ? state.candidates.length - 1
-            : -1
-          : state.candidates.length - 1 - replaceIndex;
-      if (actualIndex < 0) return;
-      const updated = [...state.candidates];
-      updated[actualIndex] = route;
-      updated.sort((a, b) => b.metrics.overallScore - a.metrics.overallScore);
-      const id = ++requestId.current;
-      dispatch({ type: "GENERATING", requestId: id });
-      dispatch({ type: "RESULTS", requestId: id, candidates: updated });
-      setAnnouncement(
-        `${t(language, "route")} ${String.fromCharCode(65 + updated.indexOf(route))} ${t(language, "locationReady").toLowerCase()}`,
+      const seed = randomSeed();
+      const route = await provider.route(
+        { ...base, seed, roundTripPoints: exploratoryShapePoints(seed) },
+        controller.signal,
       );
+      if (!isDistinctCandidate(state.candidates, route)) {
+        setAnnouncement(t(language, "similarRouteSkipped"));
+        return;
+      }
+      dispatch({ type: "APPEND_RESULT", candidate: route });
+      setAnnouncement(`${t(language, "newRouteAdded")} ${state.candidates.length + 1}`);
     } catch (error) {
       dispatch({ type: "ERROR", message: mapError(error, language) });
+    } finally {
+      setGeneratingAnother(false);
     }
   };
 
   const submitSearch = async (event: React.FormEvent) => {
     event.preventDefault();
     if (query.trim().length < 3 || !online) return;
-    setSearching(true);
-    setSearchMessage("");
-    setSearchResults([]);
-    try {
-      const results = await searchPlaces(query, state.start);
-      setSearchResults(results);
-      if (!results.length) setSearchMessage(t(language, "noResults"));
-    } catch (error) {
-      setSearchMessage(error instanceof Error ? error.message : t(language, "providerUnavailable"));
-    } finally {
-      setSearching(false);
+    if (activeSuggestion >= 0 && suggestionsOpen && searchResults[activeSuggestion]) {
+      selectSearchResult(searchResults[activeSuggestion]);
+      return;
     }
+    searchAbortRef.current?.abort();
+    const controller = new AbortController();
+    searchAbortRef.current = controller;
+    await performPlaceSearch(query.trim(), controller.signal);
   };
 
   const shareSelected = async (precise: boolean) => {
@@ -320,6 +497,7 @@ export default function App() {
         distanceMeters: selected.targetDistanceMeters,
         mode: preferences.mode,
         avoidSteps: preferences.avoidSteps,
+        priorities: preferences.routePriorities,
         seed: selected.seed,
         units: preferences.units,
       },
@@ -341,24 +519,75 @@ export default function App() {
       }
     });
     const completed = polylineDistance(selected.coordinates.slice(0, nearestIndex + 1));
+    let instructionEnd = 0;
+    const nextInstruction = selected.instructions.find((instruction) => {
+      instructionEnd += instruction.distanceMeters;
+      return instructionEnd > completed;
+    });
     return {
       completed,
       remaining: Math.max(0, selected.actualDistanceMeters - completed),
       toRoute: nearest,
+      nextInstruction,
+      nextDistance: Math.max(0, instructionEnd - completed),
     };
   }, [selected, livePosition]);
 
   const updatePreferences = (next: Preferences) => {
+    if (next.units !== preferences.units) setCustom(distanceInputValue(targetDistance, next.units));
     setPreferences(next);
   };
   const selectPreset = (meters: number) => {
     setTargetDistance(meters);
-    setCustom(meters / 1000);
+    setCustom(distanceInputValue(meters, preferences.units));
+  };
+  const setPriority = (priority: keyof RoutePriorities) =>
+    setPreferences({
+      ...preferences,
+      routePriorities: {
+        ...preferences.routePriorities,
+        [priority]: !preferences.routePriorities[priority],
+      },
+    });
+
+  const clearRoutesWithUndo = () => {
+    if (!state.candidates.length) return;
+    window.clearTimeout(undoTimerRef.current);
+    setUndoRoutes({ candidates: state.candidates, selectedId: state.selectedId });
+    setDirectionsOpen(false);
+    dispatch({ type: "CLEAR" });
+    undoTimerRef.current = window.setTimeout(() => setUndoRoutes(undefined), 8_000);
+  };
+
+  const undoClearRoutes = () => {
+    if (!undoRoutes) return;
+    window.clearTimeout(undoTimerRef.current);
+    dispatch({
+      type: "RESTORE_RESULTS",
+      candidates: undoRoutes.candidates,
+      selectedId: undoRoutes.selectedId,
+    });
+    setUndoRoutes(undefined);
+  };
+
+  const tryShorterDistance = () => {
+    const shorterDistance = Math.max(1_000, Math.round((targetDistance * 0.75) / 100) * 100);
+    setTargetDistance(shorterDistance);
+    setCustom(distanceInputValue(shorterDistance, preferences.units));
+    dispatch({ type: "CLEAR" });
+  };
+
+  const moveRouteStart = () => {
+    dispatch({ type: "CLEAR" });
+    setSetStartMode(true);
+    setExpanded(false);
   };
 
   return (
     <main className={`app-shell stage-${state.stage}`}>
-      <Suspense fallback={<div className="map-canvas map-loading" aria-label="Loading map" />}>
+      <Suspense
+        fallback={<div className="map-canvas map-loading" aria-label={t(language, "loadingMap")} />}
+      >
         <MapView
           start={state.start}
           routes={state.candidates}
@@ -366,6 +595,9 @@ export default function App() {
           setStartMode={setStartMode}
           livePosition={livePosition}
           followPosition={followMap}
+          panelExpanded={expanded}
+          following={following}
+          language={language}
           dark={dark}
           onStartChange={changeStart}
           onReady={(map) => {
@@ -428,18 +660,32 @@ export default function App() {
       )}
 
       <section
-        className={`bottom-sheet ${expanded ? "expanded" : "collapsed"}`}
-        aria-label="Route planner"
+        className={`bottom-sheet ${expanded ? "expanded" : "collapsed"} ${sheetDragging ? "dragging" : ""} ${following ? "follow-mode" : ""}`}
+        aria-label={t(language, "routePlanner")}
+        style={{ "--sheet-drag-offset": `${sheetDragOffset}px` } as React.CSSProperties}
       >
         <button
           className="sheet-handle"
-          onClick={() => setExpanded(!expanded)}
+          onClick={toggleSheet}
+          onPointerDown={startSheetDrag}
+          onPointerMove={moveSheetDrag}
+          onPointerUp={finishSheetDrag}
+          onPointerCancel={cancelSheetDrag}
           aria-label={t(language, expanded ? "collapse" : "expand")}
+          aria-expanded={expanded}
         >
-          <span />
+          <span className="sheet-grip" aria-hidden="true" />
+          <span className="sheet-handle-label">
+            {t(language, expanded ? "showMap" : "showPlanner")}
+          </span>
           {expanded ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
         </button>
-        <div className="sheet-scroll">
+        <div
+          ref={sheetScrollRef}
+          className="sheet-scroll"
+          aria-hidden={!expanded}
+          inert={!expanded}
+        >
           {following && selected ? (
             <section className="follow-panel">
               <div className="section-heading">
@@ -448,8 +694,7 @@ export default function App() {
                     <Navigation size={14} /> {t(language, "following")}
                   </span>
                   <h1>
-                    {t(language, "route")}{" "}
-                    {String.fromCharCode(65 + state.candidates.indexOf(selected))}
+                    {t(language, "route")} {routeLabel(state.candidates.indexOf(selected))}
                   </h1>
                 </div>
                 <button
@@ -459,6 +704,20 @@ export default function App() {
                 >
                   <LocateFixed />
                 </button>
+              </div>
+              <div className="follow-next">
+                <span>
+                  <Navigation aria-hidden />
+                </span>
+                <div>
+                  <small>{t(language, "nextDirection")}</small>
+                  <strong>
+                    {followProgress?.nextInstruction?.text ?? t(language, "continueRoute")}
+                  </strong>
+                </div>
+                {followProgress?.nextInstruction && (
+                  <b>{formatProximity(followProgress.nextDistance, preferences.units)}</b>
+                )}
               </div>
               {followError && <p className="error-note">{followError}</p>}
               <div className="follow-metrics">
@@ -481,7 +740,9 @@ export default function App() {
                 <div className={followProgress && followProgress.toRoute > 50 ? "off-route" : ""}>
                   <small>{t(language, "toRoute")}</small>
                   <strong>
-                    {followProgress ? `${Math.round(followProgress.toRoute)} m` : "—"}
+                    {followProgress
+                      ? formatProximity(followProgress.toRoute, preferences.units)
+                      : "—"}
                   </strong>
                 </div>
               </div>
@@ -509,7 +770,9 @@ export default function App() {
                   </h1>
                 </div>
                 {state.candidates.length > 0 && (
-                  <span className="route-count">{state.candidates.length}/3</span>
+                  <span className="route-count">
+                    {state.candidates.length} {t(language, "routesExplored")}
+                  </span>
                 )}
               </div>
 
@@ -556,9 +819,51 @@ export default function App() {
                     <MapPin size={19} />
                     <input
                       value={query}
-                      onChange={(event) => setQuery(event.target.value)}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        searchAbortRef.current?.abort();
+                        setSearching(false);
+                        setQuery(value);
+                        setSearchMessage("");
+                        if (value.trim().length < 3) {
+                          setSearchResults([]);
+                          setSuggestionsOpen(false);
+                          setActiveSuggestion(-1);
+                        } else setSuggestionsOpen(true);
+                      }}
+                      onFocus={() => setSuggestionsOpen(searchResults.length > 0)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") {
+                          setSuggestionsOpen(false);
+                          setActiveSuggestion(-1);
+                          return;
+                        }
+                        if (!searchResults.length || !suggestionsOpen) return;
+                        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                          event.preventDefault();
+                          setActiveSuggestion((current) => {
+                            const direction = event.key === "ArrowDown" ? 1 : -1;
+                            return (
+                              (current + direction + searchResults.length) % searchResults.length
+                            );
+                          });
+                        } else if (event.key === "Enter" && activeSuggestion >= 0) {
+                          event.preventDefault();
+                          selectSearchResult(searchResults[activeSuggestion]);
+                        }
+                      }}
                       placeholder={t(language, "searchPlaceholder")}
                       aria-label={t(language, "searchPlaceholder")}
+                      role="combobox"
+                      aria-autocomplete="list"
+                      aria-controls="place-suggestions"
+                      aria-expanded={suggestionsOpen && searchResults.length > 0}
+                      aria-activedescendant={
+                        suggestionsOpen && activeSuggestion >= 0
+                          ? `place-suggestion-${activeSuggestion}`
+                          : undefined
+                      }
+                      autoComplete="off"
                     />
                     <button
                       disabled={searching || query.trim().length < 3 || !online}
@@ -572,11 +877,24 @@ export default function App() {
                       {searchMessage}
                     </p>
                   )}
-                  {searchResults.length > 0 && (
-                    <ul className="search-results" aria-label="Search results">
-                      {searchResults.map((result) => (
+                  {suggestionsOpen && searchResults.length > 0 && (
+                    <ul
+                      id="place-suggestions"
+                      className="search-results"
+                      role="listbox"
+                      aria-label={t(language, "searchResults")}
+                    >
+                      {searchResults.map((result, index) => (
                         <li key={result.id}>
-                          <button onClick={() => changeStart([result.longitude, result.latitude])}>
+                          <button
+                            id={`place-suggestion-${index}`}
+                            role="option"
+                            aria-selected={index === activeSuggestion}
+                            className={index === activeSuggestion ? "active" : ""}
+                            tabIndex={-1}
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => selectSearchResult(result)}
+                          >
                             <MapPin />
                             <span>
                               <strong>{result.label}</strong>
@@ -612,23 +930,28 @@ export default function App() {
                             ? t(language, "raceHalf")
                             : meters === 42195
                               ? t(language, "raceFull")
-                              : `${meters / 1000} km`}
+                              : formatDistance(meters, preferences.units, language)}
                         </button>
                       ))}
-                      <label className={DISTANCE_PRESETS.includes(targetDistance) ? "" : "active"}>
+                      <label
+                        className={`custom-distance ${DISTANCE_PRESETS.includes(targetDistance) ? "" : "active"}`}
+                      >
                         <span>{t(language, "custom")}</span>
                         <input
                           type="number"
-                          min="1"
-                          max="100"
+                          min={1}
+                          max={maxCustomDistance}
+                          step="0.1"
                           value={custom}
                           onChange={(event) => {
                             const value = Number(event.target.value);
                             setCustom(value);
-                            if (value >= 1 && value <= 100) setTargetDistance(value * 1000);
+                            if (value >= 1 && value <= maxCustomDistance)
+                              setTargetDistance(value * distanceUnitMeters);
                           }}
+                          aria-label={t(language, "customDistance")}
                         />
-                        <small>km</small>
+                        <small>{preferences.units}</small>
                       </label>
                     </div>
                   </fieldset>
@@ -654,6 +977,31 @@ export default function App() {
                       <p className="trail-note">{t(language, "trailWarning")}</p>
                     )}
                   </fieldset>
+                  <fieldset className="control-group">
+                    <legend>{t(language, "routePriorities")}</legend>
+                    <div className="priority-grid">
+                      {(
+                        [
+                          ["water", Waves, "preferWater"],
+                          ["woodland", Trees, "preferWoodland"],
+                          ["unpaved", Leaf, "preferUnpaved"],
+                          ["quiet", VolumeX, "preferQuiet"],
+                        ] as const
+                      ).map(([priority, Icon, label]) => (
+                        <button
+                          key={priority}
+                          type="button"
+                          aria-pressed={preferences.routePriorities[priority]}
+                          className={preferences.routePriorities[priority] ? "active" : ""}
+                          onClick={() => setPriority(priority)}
+                        >
+                          <Icon />
+                          <span>{t(language, label)}</span>
+                        </button>
+                      ))}
+                    </div>
+                    <p>{t(language, "priorityHint")}</p>
+                  </fieldset>
                   <label className="switch-row compact">
                     <input
                       type="checkbox"
@@ -669,7 +1017,7 @@ export default function App() {
                   </label>
                   <button
                     className="primary-button generate-button"
-                    disabled={!state.start || !online || custom < 1 || custom > 100}
+                    disabled={!state.start || !online || custom < 1 || custom > maxCustomDistance}
                     onClick={() => generate(sharedPlan?.seed)}
                   >
                     <Footprints />
@@ -700,16 +1048,37 @@ export default function App() {
 
               {state.candidates.length > 0 && (
                 <div className="results-panel">
-                  <div className="route-list">
+                  {allCandidatesNeedReview && (
+                    <aside className="quality-recovery" role="status">
+                      <AlertTriangle aria-hidden />
+                      <div>
+                        <strong>{t(language, "noCloseMatch")}</strong>
+                        <p>{t(language, "noCloseMatchHint")}</p>
+                        <div>
+                          <button onClick={tryShorterDistance}>{t(language, "tryShorter")}</button>
+                          <button onClick={moveRouteStart}>{t(language, "moveStart")}</button>
+                        </div>
+                      </div>
+                    </aside>
+                  )}
+                  <div
+                    className="route-list"
+                    role="radiogroup"
+                    aria-label={t(language, "chooseRoute")}
+                  >
                     {state.candidates.map((route, index) => (
                       <RouteCard
                         key={route.id}
                         route={route}
                         index={index}
                         selected={route.id === state.selectedId}
+                        best={route.metrics.overallScore === bestScore}
                         units={preferences.units}
                         language={language}
                         paceSecondsPerKm={preferences.paceSecondsPerKm}
+                        showPreferenceMatch={Object.values(preferences.routePriorities).some(
+                          Boolean,
+                        )}
                         onSelect={() => dispatch({ type: "SELECT", id: route.id })}
                       />
                     ))}
@@ -720,8 +1089,7 @@ export default function App() {
                         <div>
                           <span className="eyebrow">{t(language, "selectedRoute")}</span>
                           <h2>
-                            {t(language, "route")}{" "}
-                            {String.fromCharCode(65 + state.candidates.indexOf(selected))}
+                            {t(language, "route")} {routeLabel(state.candidates.indexOf(selected))}
                           </h2>
                         </div>
                         <strong>
@@ -732,7 +1100,11 @@ export default function App() {
                           )}
                         </strong>
                       </div>
-                      <ElevationProfile coordinates={selected.coordinates} />
+                      <ElevationProfile
+                        coordinates={selected.coordinates}
+                        units={preferences.units}
+                        language={language}
+                      />
                       {selected.metrics.closureDistanceMeters > 10 && (
                         <p className="snap-note">
                           <MapPin />
@@ -755,7 +1127,10 @@ export default function App() {
                       <div className="action-grid">
                         <button
                           className="primary-button follow-button"
-                          onClick={() => dispatch({ type: "FOLLOW" })}
+                          onClick={() => {
+                            setExpanded(true);
+                            dispatch({ type: "FOLLOW" });
+                          }}
                         >
                           <Navigation />
                           {t(language, "startFollowing")}
@@ -768,51 +1143,19 @@ export default function App() {
                           <Share2 />
                           {t(language, "share")}
                         </button>
-                        <button onClick={generateAnother} disabled={!online}>
-                          <RefreshCw />
-                          {t(language, "generateAnother")}
+                        <button onClick={generateAnother} disabled={!online || generatingAnother}>
+                          <RefreshCw className={generatingAnother ? "spin" : ""} />
+                          {t(language, generatingAnother ? "generatingOne" : "generateAnother")}
                         </button>
-                        <button onClick={() => setDirectionsOpen(!directionsOpen)}>
+                        <button onClick={() => setDirectionsOpen(true)}>
                           <Menu />
                           {t(language, "directions")}
                         </button>
-                        <button
-                          className="clear-action"
-                          onClick={() => dispatch({ type: "CLEAR" })}
-                        >
+                        <button className="clear-action" onClick={clearRoutesWithUndo}>
                           <X />
                           {t(language, "clearRoute")}
                         </button>
                       </div>
-                      {directionsOpen && (
-                        <section
-                          className="directions-list"
-                          aria-label={t(language, "viewDirections")}
-                        >
-                          <h3>{t(language, "viewDirections")}</h3>
-                          {selected.instructions.length ? (
-                            <ol>
-                              {selected.instructions.map((instruction, index) => (
-                                <li key={`${instruction.text}-${index}`}>
-                                  <span>{index + 1}</span>
-                                  <div>
-                                    {instruction.text}
-                                    <small>
-                                      {formatDistance(
-                                        instruction.distanceMeters,
-                                        preferences.units,
-                                        language,
-                                      )}
-                                    </small>
-                                  </div>
-                                </li>
-                              ))}
-                            </ol>
-                          ) : (
-                            <p>{t(language, "unknown")}</p>
-                          )}
-                        </section>
-                      )}
                     </section>
                   )}
                 </div>
@@ -825,6 +1168,12 @@ export default function App() {
       <div className="sr-only" aria-live="polite">
         {announcement}
       </div>
+      {undoRoutes && (
+        <div className="undo-toast" role="status">
+          <span>{t(language, "routeCleared")}</span>
+          <button onClick={undoClearRoutes}>{t(language, "undo")}</button>
+        </div>
+      )}
       <SettingsDialog
         open={settingsOpen}
         preferences={preferences}
@@ -842,6 +1191,18 @@ export default function App() {
         language={language}
         onShare={shareSelected}
         onClose={() => setShareOpen(false)}
+      />
+      <DirectionsDialog
+        open={directionsOpen}
+        route={selected}
+        routeName={
+          selected
+            ? `${t(language, "route")} ${routeLabel(state.candidates.indexOf(selected))}`
+            : ""
+        }
+        units={preferences.units}
+        language={language}
+        onClose={() => setDirectionsOpen(false)}
       />
     </main>
   );

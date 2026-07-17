@@ -1,6 +1,7 @@
 import { Copy, ShieldCheck, X } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { Language } from "../../config/app";
+import { useDialogFocus } from "../../hooks/useDialogFocus";
 import { t } from "../../i18n";
 
 export function ShareDialog({
@@ -14,12 +15,23 @@ export function ShareDialog({
   onShare: (precise: boolean) => Promise<void>;
   onClose: () => void;
 }) {
+  const backdropRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLElement>(null);
   const [precise, setPrecise] = useState(false);
   const [copied, setCopied] = useState(false);
+  useDialogFocus(open, dialogRef, backdropRef, onClose);
   if (!open) return null;
   return (
-    <div className="dialog-backdrop">
+    <div
+      ref={backdropRef}
+      className="dialog-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
       <section
+        ref={dialogRef}
         className="dialog share-dialog"
         role="dialog"
         aria-modal="true"

@@ -1,6 +1,16 @@
+import type { DisplayUnits, Language } from "../../config/app";
+import { t } from "../../i18n";
 import type { Coordinate } from "../../types/route";
 
-export function ElevationProfile({ coordinates }: { coordinates: Coordinate[] }) {
+export function ElevationProfile({
+  coordinates,
+  units,
+  language,
+}: {
+  coordinates: Coordinate[];
+  units: DisplayUnits;
+  language: Language;
+}) {
   const values = coordinates
     .filter((coordinate) => coordinate.length > 2)
     .map((coordinate) => coordinate[2] ?? 0);
@@ -8,6 +18,8 @@ export function ElevationProfile({ coordinates }: { coordinates: Coordinate[] })
   const min = Math.min(...values);
   const max = Math.max(...values);
   const range = Math.max(1, max - min);
+  const elevationFactor = units === "mi" ? 3.28084 : 1;
+  const elevationUnit = units === "mi" ? "ft" : "m";
   const path = values
     .map(
       (value, index) =>
@@ -16,13 +28,19 @@ export function ElevationProfile({ coordinates }: { coordinates: Coordinate[] })
     .join(" ");
   return (
     <svg
-      viewBox="0 0 300 76"
+      viewBox="0 0 300 90"
       role="img"
-      aria-label={`Elevation profile from ${Math.round(min)} to ${Math.round(max)} metres`}
+      aria-label={`${t(language, "elevationProfile")}: ${Math.round(min * elevationFactor)}–${Math.round(max * elevationFactor)} ${elevationUnit}`}
       className="elevation-profile"
     >
       <path d={`${path} L 300 76 L 0 76 Z`} className="elevation-fill" />
       <path d={path} className="elevation-line" />
+      <text x="4" y="87" className="elevation-label" aria-hidden="true">
+        {Math.round(min * elevationFactor)} {elevationUnit}
+      </text>
+      <text x="296" y="87" textAnchor="end" className="elevation-label" aria-hidden="true">
+        {Math.round(max * elevationFactor)} {elevationUnit}
+      </text>
     </svg>
   );
 }

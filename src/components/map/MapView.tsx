@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
 import maplibregl, { type Map, type Marker } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { DEFAULT_CENTER, ROUTE_COLORS } from "../../config/app";
+import { DEFAULT_CENTER, DESKTOP_BREAKPOINT, ROUTE_COLORS, type Language } from "../../config/app";
+import { t } from "../../i18n";
 import { haversineDistance } from "../../geo/distance";
 import { routeBounds } from "../../geo/bounds";
 import type { NormalizedRoute } from "../../types/route";
@@ -14,6 +15,9 @@ interface Props {
   setStartMode: boolean;
   livePosition?: LivePosition;
   followPosition?: boolean;
+  panelExpanded: boolean;
+  following: boolean;
+  language: Language;
   dark: boolean;
   onStartChange: (coordinate: [number, number]) => void;
   onReady?: (map: Map) => void;
@@ -21,6 +25,32 @@ interface Props {
 
 const styleUrl = (dark: boolean) =>
   `https://tiles.openfreemap.org/styles/${dark ? "dark" : "liberty"}`;
+
+const routePadding = (panelExpanded: boolean, following: boolean) => {
+  if (window.innerWidth >= DESKTOP_BREAKPOINT)
+    return { top: 105, right: 48, bottom: 74, left: panelExpanded ? 472 : 82 };
+  if (!panelExpanded) return { top: 88, right: 28, bottom: 94, left: 28 };
+  const panelHeight = following
+    ? Math.min(380, window.innerHeight * 0.42 + 16)
+    : Math.min(704, window.innerHeight * 0.75 + 24);
+  return { top: 86, right: 28, bottom: panelHeight, left: 28 };
+};
+
+const fitSelectedRoute = (
+  map: Map,
+  route: NormalizedRoute,
+  panelExpanded: boolean,
+  following: boolean,
+  duration: number,
+) => {
+  const bounds = routeBounds(route.coordinates);
+  if (!bounds) return;
+  map.fitBounds(bounds, {
+    padding: routePadding(panelExpanded, following),
+    duration,
+    maxZoom: 15,
+  });
+};
 
 const markerElement = (className: string, label: string) => {
   const element = document.createElement("div");
@@ -36,6 +66,9 @@ export function MapView({
   setStartMode,
   livePosition,
   followPosition,
+  panelExpanded,
+  following,
+  language,
   dark,
   onStartChange,
   onReady,
@@ -49,6 +82,7 @@ export function MapView({
   const startMode = useRef(setStartMode);
   const initial = useRef({ dark, start, onReady });
   const lastDark = useRef(dark);
+  const renderedRouteCount = useRef(0);
 
   useEffect(() => {
     callback.current = onStartChange;
@@ -96,7 +130,7 @@ export function MapView({
     if (!map || !start) return;
     if (!startMarker.current) {
       startMarker.current = new maplibregl.Marker({
-        element: markerElement("start-marker", "Route start"),
+        element: markerElement("start-marker", t(language, "routeStart")),
         draggable: true,
       })
         .setLngLat(start)
@@ -105,16 +139,19 @@ export function MapView({
         const point = startMarker.current!.getLngLat();
         callback.current([point.lng, point.lat]);
       });
-    } else startMarker.current.setLngLat(start);
+    } else {
+      startMarker.current.setLngLat(start);
+      startMarker.current.getElement().setAttribute("aria-label", t(language, "routeStart"));
+    }
     if (!routes.length)
       map.easeTo({ center: start, zoom: Math.max(map.getZoom(), 13), duration: 500 });
-  }, [start, routes.length]);
+  }, [start, routes.length, language]);
 
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     const render = () => {
-      for (let index = 0; index < 3; index += 1) {
+      for (let index = 0; index < Math.max(renderedRouteCount.current, routes.length); index += 1) {
         const id = `route-${index}`;
         if (map.getLayer(id)) map.removeLayer(id);
         if (map.getSource(id)) map.removeSource(id);
@@ -137,31 +174,21 @@ export function MapView({
           source: id,
           layout: { "line-cap": "round", "line-join": "round" },
           paint: {
-            "line-color": ROUTE_COLORS[index],
+            "line-color": ROUTE_COLORS[index % ROUTE_COLORS.length],
             "line-width": route.id === selectedId ? 7 : 4,
             "line-opacity": route.id === selectedId ? 0.95 : 0.52,
           },
         });
       });
+      renderedRouteCount.current = routes.length;
       const selected = routes.find((route) => route.id === selectedId);
       if (selected) {
-        const bounds = routeBounds(selected.coordinates);
-        if (bounds)
-          map.fitBounds(bounds, {
-            padding: {
-              top: 110,
-              right: 45,
-              bottom: window.innerWidth < 768 ? 380 : 75,
-              left: window.innerWidth < 768 ? 45 : 430,
-            },
-            duration: 650,
-            maxZoom: 15,
-          });
+        fitSelectedRoute(map, selected, panelExpanded, following, 650);
         const snapped = selected.snappedStart;
         if (haversineDistance(selected.requestedStart, snapped) > 10) {
           snappedMarker.current?.remove();
           snappedMarker.current = new maplibregl.Marker({
-            element: markerElement("snapped-marker", "Snapped route start"),
+            element: markerElement("snapped-marker", t(language, "snappedRouteStart")),
           })
             .setLngLat(snapped)
             .addTo(map);
@@ -190,7 +217,19 @@ export function MapView({
     };
     if (map.isStyleLoaded()) render();
     else map.once("load", render);
-  }, [routes, selectedId, dark]);
+  }, [routes, selectedId, dark, panelExpanded, following, language]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const resize = () => {
+      map.resize();
+      const selected = routes.find((route) => route.id === selectedId);
+      if (selected) fitSelectedRoute(map, selected, panelExpanded, following, 0);
+    };
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+  }, [routes, selectedId, panelExpanded, following]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -202,24 +241,27 @@ export function MapView({
     }
     if (!liveMarker.current)
       liveMarker.current = new maplibregl.Marker({
-        element: markerElement("live-marker", "Current position"),
+        element: markerElement("live-marker", t(language, "currentLocation")),
       })
         .setLngLat(livePosition.coordinate)
         .addTo(map);
-    else liveMarker.current.setLngLat(livePosition.coordinate);
+    else {
+      liveMarker.current.setLngLat(livePosition.coordinate);
+      liveMarker.current.getElement().setAttribute("aria-label", t(language, "currentLocation"));
+    }
     if (followPosition)
       map.easeTo({
         center: livePosition.coordinate,
         zoom: Math.max(map.getZoom(), 15),
         duration: 450,
       });
-  }, [livePosition, followPosition]);
+  }, [livePosition, followPosition, language]);
 
   return (
     <div
       ref={container}
       className={`map-canvas ${setStartMode ? "set-start-cursor" : ""}`}
-      aria-label="Interactive route map"
+      aria-label={t(language, "interactiveMap")}
       data-testid="map"
     />
   );

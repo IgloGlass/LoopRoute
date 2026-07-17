@@ -1,5 +1,8 @@
 # LoopRoute
 
+The route-search design and scoring invariants are documented in
+[`docs/route-generation.md`](docs/route-generation.md).
+
 LoopRoute is a mobile-first progressive web app that creates approximately circular running routes from a chosen start. It asks for the current GPS position, requests up to three free pedestrian round trips, ranks them for distance accuracy and low repetition, and supports GPX export, reproducible privacy-aware links, and basic live following.
 
 The app has no accounts, analytics, database, cookies, paid map provider, or server process. It is designed for Cloudflare Pages, OpenFreeMap, OpenStreetMap-derived data, and the free openrouteservice API.

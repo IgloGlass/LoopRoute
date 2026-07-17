@@ -1,7 +1,9 @@
 import { elevationGain } from "../../geo/elevation";
+import { summarizeEnvironment } from "../../geo/environment";
 import { polylineDistance } from "../../geo/distance";
 import { scoreRoute } from "../../geo/scoring";
 import { summarizeSurfaces } from "../../geo/surfaces";
+import type { ExtraSummaryItem } from "../../geo/surfaces";
 import type {
   Coordinate,
   NormalizedRoute,
@@ -15,7 +17,11 @@ interface OrsFeature {
   properties?: {
     summary?: { distance?: number; ascent?: number; descent?: number };
     segments?: Array<{ steps?: Array<{ instruction?: string; distance?: number; type?: number }> }>;
-    extras?: { surface?: { values?: Array<[number, number, number]> } };
+    extras?: {
+      surface?: { values?: Array<[number, number, number]>; summary?: ExtraSummaryItem[] };
+      green?: { values?: Array<[number, number, number]>; summary?: ExtraSummaryItem[] };
+      noise?: { values?: Array<[number, number, number]>; summary?: ExtraSummaryItem[] };
+    };
   };
 }
 
@@ -54,6 +60,13 @@ export function normalizeOrsResponse(data: unknown, request: RouteRequest): Norm
       type: step.type,
     })),
   );
+  const extras = feature.properties?.extras;
+  const surfaceSummary = summarizeSurfaces(
+    extras?.surface?.values,
+    coordinates,
+    extras?.surface?.summary,
+  );
+  const environmentSummary = summarizeEnvironment(coordinates, extras?.green, extras?.noise);
   return {
     id: `ors-${request.seed}-${Math.round(actualDistanceMeters)}`,
     seed: request.seed,
@@ -65,13 +78,18 @@ export function normalizeOrsResponse(data: unknown, request: RouteRequest): Norm
     descentMeters: feature.properties?.summary?.descent ?? calculatedElevation.descent,
     coordinates,
     instructions,
-    surfaceSummary: summarizeSurfaces(
-      feature.properties?.extras?.surface?.values,
-      actualDistanceMeters,
-    ),
+    surfaceSummary,
+    environmentSummary,
     provider: "openrouteservice",
-    profile: request.mode === "trail" ? "foot-hiking" : "foot-walking",
-    metrics: scoreRoute(coordinates, request.targetDistanceMeters),
+    profile:
+      request.mode === "trail" || request.priorities.unpaved ? "foot-hiking" : "foot-walking",
+    metrics: scoreRoute(
+      coordinates,
+      request.targetDistanceMeters,
+      request.priorities,
+      surfaceSummary,
+      environmentSummary,
+    ),
   };
 }
 
