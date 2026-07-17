@@ -34,7 +34,7 @@ import { distanceToRoute, polylineDistance } from "../geo/distance";
 import { useLivePosition } from "../hooks/useLivePosition";
 import { useNetworkStatus } from "../hooks/useNetworkStatus";
 import { useWakeLock } from "../hooks/useWakeLock";
-import { t } from "../i18n";
+import { routeWarningText, t } from "../i18n";
 import { OpenRouteServiceRoutingProvider, ApiError } from "../providers/routing/openRouteService";
 import { searchPlaces, type GeocodingResult } from "../providers/geocoding/openRouteService";
 import { downloadGpx } from "../services/gpx";
@@ -747,7 +747,7 @@ export default function App() {
                           </summary>
                           <ul>
                             {selected.metrics.warnings.map((warning) => (
-                              <li key={warning}>{warning}</li>
+                              <li key={warning}>{routeWarningText(language, warning)}</li>
                             ))}
                           </ul>
                         </details>

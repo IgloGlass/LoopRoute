@@ -23,6 +23,8 @@ export interface RepeatMetrics {
   undirectedEdges: Set<string>;
 }
 
+export type RouteWarning = "distanceTolerance" | "highRepetition" | "outAndBack" | "openLoop";
+
 export interface RouteMetrics {
   distanceErrorPercent: number;
   closureDistanceMeters: number;
@@ -34,7 +36,7 @@ export interface RouteMetrics {
   closureScore: number;
   overallScore: number;
   quality: "excellent" | "good" | "compromised";
-  warnings: string[];
+  warnings: RouteWarning[];
 }
 
 export interface NormalizedRoute {

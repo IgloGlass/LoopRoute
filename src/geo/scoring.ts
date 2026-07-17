@@ -1,4 +1,4 @@
-import type { Coordinate, RouteMetrics } from "../types/route";
+import type { Coordinate, RouteMetrics, RouteWarning } from "../types/route";
 import { haversineDistance, polylineDistance } from "./distance";
 import { centroid, projectLocal } from "./projection";
 import { repeatedEdges } from "./repeats";
@@ -42,12 +42,11 @@ export function scoreRoute(coordinates: Coordinate[], targetDistanceMeters: numb
       : error <= 5 && repeatedPercent <= 20
         ? "good"
         : "compromised";
-  const warnings: string[] = [];
-  if (error > 5) warnings.push("Distance is outside the 5% target tolerance.");
-  if (repeatedPercent > 20) warnings.push("More than 20% of this route is repeated.");
-  if (repeatedPercent - directedPercent > 12)
-    warnings.push("This route includes substantial out-and-back travel.");
-  if (closure > 50) warnings.push("The route does not close near the start.");
+  const warnings: RouteWarning[] = [];
+  if (error > 5) warnings.push("distanceTolerance");
+  if (repeatedPercent > 20) warnings.push("highRepetition");
+  if (repeatedPercent - directedPercent > 12) warnings.push("outAndBack");
+  if (closure > 50) warnings.push("openLoop");
   return {
     distanceErrorPercent: error,
     closureDistanceMeters: closure,

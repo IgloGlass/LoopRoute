@@ -60,6 +60,10 @@ describe("geospatial utilities", () => {
     expect(metrics.closureDistanceMeters).toBeLessThan(1);
     expect(metrics.overallScore).toBeGreaterThan(80);
   });
+  it("returns stable warning codes for localization", () => {
+    const route = circle();
+    expect(scoreRoute(route, polylineDistance(route) / 2).warnings).toContain("distanceTolerance");
+  });
   it("filters small elevation noise", () =>
     expect(
       elevationGain([

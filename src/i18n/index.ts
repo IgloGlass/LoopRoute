@@ -1,4 +1,5 @@
 import type { Language } from "../config/app";
+import type { RouteWarning } from "../types/route";
 
 export const en = {
   tagline: "A good run, from right here.",
@@ -100,6 +101,10 @@ export const en = {
   raceHalf: "Half marathon",
   raceFull: "Marathon",
   warnings: "Route notes",
+  warningDistanceTolerance: "Distance is outside the 5% target tolerance.",
+  warningHighRepetition: "More than 20% of this route is repeated.",
+  warningOutAndBack: "This route includes substantial out-and-back travel.",
+  warningOpenLoop: "The route does not close near the start.",
   viewDirections: "Turn directions",
   unknown: "Unknown",
   paved: "paved",
@@ -219,6 +224,10 @@ export const sv: Record<TranslationKey, string> = {
   raceHalf: "Halvmaraton",
   raceFull: "Maraton",
   warnings: "Information om rundan",
+  warningDistanceTolerance: "Distansen avviker mer än 5 % från målet.",
+  warningHighRepetition: "Mer än 20 % av rundan upprepas.",
+  warningOutAndBack: "Rundan innehåller en längre sträcka fram och tillbaka på samma väg.",
+  warningOpenLoop: "Rundan slutar inte nära startpunkten.",
   viewDirections: "Svänganvisningar",
   unknown: "Okänt",
   paved: "asfalterat",
@@ -239,3 +248,22 @@ export const sv: Record<TranslationKey, string> = {
 
 export const dictionaries = { en, sv } as const;
 export const t = (language: Language, key: TranslationKey) => dictionaries[language][key];
+
+const warningKeys: Record<RouteWarning, TranslationKey> = {
+  distanceTolerance: "warningDistanceTolerance",
+  highRepetition: "warningHighRepetition",
+  outAndBack: "warningOutAndBack",
+  openLoop: "warningOpenLoop",
+};
+
+const legacyWarnings: Record<string, RouteWarning> = {
+  "Distance is outside the 5% target tolerance.": "distanceTolerance",
+  "More than 20% of this route is repeated.": "highRepetition",
+  "This route includes substantial out-and-back travel.": "outAndBack",
+  "The route does not close near the start.": "openLoop",
+};
+
+export const routeWarningText = (language: Language, warning: RouteWarning | string) => {
+  const warningCode = warning in warningKeys ? (warning as RouteWarning) : legacyWarnings[warning];
+  return warningCode ? t(language, warningKeys[warningCode]) : warning;
+};

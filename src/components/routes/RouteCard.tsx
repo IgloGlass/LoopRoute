@@ -1,6 +1,6 @@
 import { AlertTriangle, ArrowUpRight, Footprints, Mountain, Timer } from "lucide-react";
 import type { DisplayUnits, Language } from "../../config/app";
-import { t } from "../../i18n";
+import { routeWarningText, t } from "../../i18n";
 import type { NormalizedRoute } from "../../types/route";
 
 const distance = (meters: number, units: DisplayUnits, language: Language) =>
@@ -87,7 +87,7 @@ export function RouteCard({
       {route.metrics.warnings.length > 0 && (
         <span className="warning-line">
           <AlertTriangle size={15} />
-          {route.metrics.warnings[0]}
+          {routeWarningText(language, route.metrics.warnings[0])}
         </span>
       )}
     </button>
