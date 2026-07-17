@@ -11,8 +11,8 @@ round-trip control points. This deliberately samples elongated and moderately ro
 not increase control points with route length. openrouteservice documents that larger point counts
 produce more circular routes, so using a large distance-based count would introduce a shape bias.
 
-If fewer than three distinct usable candidates return, or fewer than three avoid compromised
-quality, the browser can make at most two bounded replacement calls. From the resulting pool it uses
+If fewer than three distinct usable candidates return, or fewer than three meet the core distance,
+closure, and repetition thresholds, the browser can make at most two bounded replacement calls. From the resulting pool it uses
 greedy diversity selection. The first route has the best quality score; each later choice maximizes:
 
 `quality score - 30 × maximum similarity to an already selected route`
@@ -23,13 +23,17 @@ replacing one of the first three, so exploration can continue without changing r
 ## Shape-neutral quality score
 
 Let `e` be absolute distance error in percent, `u` undirected repeated-route percent, `d` directed
-repeat percent, and `c` the closure gap in metres.
+repeat percent, `c` the closure gap in metres, and `t` the number of decision turns per kilometre.
 
 - `distance = 100 × exp(-0.5 × (e / 4)²)`
 - `repeat = clamp(100 - 2.5u - 0.75d)`
 - `closure = clamp(100 - 1.5 × max(0, c - 10))`
 - `preference` is the mean of available evidence for requested priorities
-- `overall = 0.32 distance + 0.33 repeat + 0.10 closure + 0.25 preference`
+- `turn simplicity = clamp(100 - 25t)`
+- `overall = 0.29 distance + 0.28 repeat + 0.08 closure + 0.20 preference + 0.15 turn simplicity`
+
+Decision turns include left, right, sharp/slight turns, roundabout entry, U-turns, and keep-left or
+keep-right instructions. Depart, continue-straight, roundabout exit, and arrival steps are excluded.
 
 There is intentionally no compactness, radial variance, aspect-ratio, enclosed-area, or circularity
 term. Two equally long, equally closed, non-repeating routes with equal preference evidence receive
@@ -37,9 +41,11 @@ the same score even if one is circular and the other is a long oval.
 
 ## Preference evidence
 
-- Near water and woodland both strengthen the provider's `green` weighting. Its green evidence is
-  derived from trees, parks, and rivers, so the UI describes this as map-data-dependent rather than
-  claiming exact land-cover classification.
+- Along water and woodland both use the provider's `green` evidence, which is influenced by trees,
+  parks, and rivers. Woodland uses the distance-weighted average. Along water puts 75% of its weight
+  on the longest uninterrupted section rated at least 6/10 green, rewarding sustained shoreline-like
+  travel over briefly passing a green or waterside area. This remains a proxy because the public
+  provider does not distinguish water from other green features.
 - Quiet uses the provider's quiet weighting and distance-weighted noise evidence.
 - Unpaved selects the hiking pedestrian profile and ranks returned routes by distance-weighted
   surface evidence.

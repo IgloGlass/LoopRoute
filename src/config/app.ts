@@ -4,14 +4,6 @@ export const STORAGE_VERSION = 1;
 export const DEFAULT_CENTER: [number, number] = [18.0686, 59.3293];
 export const MAP_STYLE = "https://tiles.openfreemap.org/styles/liberty";
 export const DESKTOP_BREAKPOINT = 700;
-export const ROUTE_COLORS = [
-  "#f05d3a",
-  "#176f67",
-  "#75538c",
-  "#b87918",
-  "#2874a6",
-  "#9b3f66",
-] as const;
 export const DISTANCE_PRESETS = [3000, 5000, 7500, 10000, 15000, 21097.5, 30000, 42195];
 export const MAX_RESAMPLED_POINTS = 12_000;
 

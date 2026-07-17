@@ -89,6 +89,7 @@ export function normalizeOrsResponse(data: unknown, request: RouteRequest): Norm
       request.priorities,
       surfaceSummary,
       environmentSummary,
+      instructions,
     ),
   };
 }

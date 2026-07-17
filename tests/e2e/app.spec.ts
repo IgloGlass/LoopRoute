@@ -92,6 +92,7 @@ test("GPS success generates three routes, selects one and exports GPX", async ({
   await generateButton.click();
   await expect(page.getByRole("radio", { name: /Route A/ })).toBeVisible();
   await expect(page.getByRole("radio", { name: /Route C/ })).toBeVisible();
+  await expect(page.getByText("1 turn").first()).toBeVisible();
   await page.getByRole("radio", { name: /Route B/ }).click();
   await expect(page.getByText("Selected route")).toBeVisible();
   const downloadPromise = page.waitForEvent("download");
@@ -163,7 +164,7 @@ test("route priorities and shape-neutral portfolio reach the same-origin route A
     if (request.url().includes("/api/route")) requests.push(request.postDataJSON());
   });
   await page.goto("/");
-  await page.getByRole("button", { name: "Near water" }).click();
+  await page.getByRole("button", { name: "Along water" }).click();
   await page.getByRole("button", { name: "Unpaved" }).click();
   await page.getByRole("button", { name: /Find my loops/ }).click();
   await expect(page.getByRole("radio", { name: /Route C/ })).toBeVisible();

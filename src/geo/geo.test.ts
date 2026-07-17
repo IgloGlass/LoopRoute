@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { haversineDistance, polylineDistance } from "./distance";
 import { elevationGain } from "./elevation";
+import { longestGreenStretchPercent, summarizeEnvironment } from "./environment";
 import { resampleRoute } from "./resample";
 import { repeatedEdges, routeSimilarity } from "./repeats";
-import { preferenceScore, scoreRoute } from "./scoring";
+import { countDecisionTurns, preferenceScore, scoreRoute } from "./scoring";
 import { summarizeSurfaces } from "./surfaces";
 
 const stockholm: [number, number] = [18.0686, 59.3293];
@@ -99,6 +100,67 @@ describe("geospatial utilities", () => {
         { pavedPercent: 20, unpavedPercent: 80, unknownPercent: 0, dominant: "Unpaved" },
       ),
     ).toEqual({ score: 65, coverage: 50 });
+  });
+  it("rewards one sustained green stretch over brief green encounters", () => {
+    const coordinates: [number, number][] = Array.from({ length: 6 }, (_, index) => [
+      18 + index * 0.001,
+      59,
+    ]);
+    const continuity = longestGreenStretchPercent(
+      [
+        [0, 2, 8],
+        [2, 3, 2],
+        [3, 5, 8],
+      ],
+      coordinates,
+    );
+    expect(continuity).toBeCloseTo(40, 0);
+    expect(
+      summarizeEnvironment(coordinates, {
+        values: [
+          [0, 2, 8],
+          [2, 3, 2],
+          [3, 5, 8],
+        ],
+      })?.greenContinuityPercent,
+    ).toBeCloseTo(40, 0);
+    const alongWater = { water: true, woodland: false, unpaved: false, quiet: false };
+    expect(
+      preferenceScore(alongWater, undefined, {
+        greenPercent: 70,
+        greenContinuityPercent: 70,
+      }).score,
+    ).toBeGreaterThan(
+      preferenceScore(alongWater, undefined, {
+        greenPercent: 70,
+        greenContinuityPercent: 20,
+      }).score,
+    );
+  });
+  it("counts navigation decisions and ranks simpler routes higher", () => {
+    const instruction = (type: number) => ({ text: String(type), distanceMeters: 100, type });
+    expect(countDecisionTurns([0, 1, 6, 7, 8, 9, 10, 11, 12, 13].map(instruction))).toBe(6);
+    const route = circle();
+    const target = polylineDistance(route);
+    const simple = scoreRoute(
+      route,
+      target,
+      noPriorities,
+      undefined,
+      undefined,
+      [0, 1].map(instruction),
+    );
+    const complex = scoreRoute(
+      route,
+      target,
+      noPriorities,
+      undefined,
+      undefined,
+      [0, 1, 2, 3, 4, 5, 7, 9, 12, 13].map(instruction),
+    );
+    expect(simple.turnCount).toBe(2);
+    expect(complex.turnCount).toBe(10);
+    expect(simple.overallScore).toBeGreaterThan(complex.overallScore);
   });
   it("filters small elevation noise", () =>
     expect(

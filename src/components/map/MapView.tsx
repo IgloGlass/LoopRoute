@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import maplibregl, { type Map, type Marker } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { DEFAULT_CENTER, DESKTOP_BREAKPOINT, ROUTE_COLORS, type Language } from "../../config/app";
+import { DEFAULT_CENTER, DESKTOP_BREAKPOINT, type Language } from "../../config/app";
 import { t } from "../../i18n";
 import { haversineDistance } from "../../geo/distance";
 import { routeBounds } from "../../geo/bounds";
@@ -174,9 +174,9 @@ export function MapView({
           source: id,
           layout: { "line-cap": "round", "line-join": "round" },
           paint: {
-            "line-color": ROUTE_COLORS[index % ROUTE_COLORS.length],
-            "line-width": route.id === selectedId ? 7 : 4,
-            "line-opacity": route.id === selectedId ? 0.95 : 0.52,
+            "line-color": dark ? "#f1eee6" : "#173f35",
+            "line-width": route.id === selectedId ? 7 : 3,
+            "line-opacity": route.id === selectedId ? 0.96 : 0.3,
           },
         });
       });
