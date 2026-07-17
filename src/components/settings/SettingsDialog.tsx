@@ -1,4 +1,5 @@
 import { DatabaseZap, ExternalLink, X } from "lucide-react";
+import { APP_NAME } from "../../config/app";
 import type { Preferences } from "../../services/storage";
 import { t } from "../../i18n";
 
@@ -33,7 +34,7 @@ export function SettingsDialog({
       >
         <header>
           <div>
-            <span className="eyebrow">LoopRoute</span>
+            <span className="eyebrow">{APP_NAME}</span>
             <h2 id="settings-title">{t(language, "settings")}</h2>
           </div>
           <button className="icon-button" onClick={onClose} aria-label={t(language, "close")}>
@@ -60,8 +61,8 @@ export function SettingsDialog({
               onChange({ ...preferences, units: event.target.value as Preferences["units"] })
             }
           >
-            <option value="km">Kilometres</option>
-            <option value="mi">Miles</option>
+            <option value="km">{t(language, "kilometres")}</option>
+            <option value="mi">{t(language, "miles")}</option>
           </select>
         </label>
         <label>

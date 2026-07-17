@@ -64,7 +64,7 @@ export function parseShareUrl(search: string): SharePlan | undefined {
 export async function sharePlan(url: string): Promise<"shared" | "copied"> {
   if (navigator.share) {
     try {
-      await navigator.share({ title: "LoopRoute running route", url });
+      await navigator.share({ title: `${APP_NAME} running route`, url });
       return "shared";
     } catch {
       // A dismissed or unsupported native share sheet falls back to a copyable link.
@@ -84,3 +84,4 @@ export async function sharePlan(url: string): Promise<"shared" | "copied"> {
   }
   return "copied";
 }
+import { APP_NAME } from "../config/app";

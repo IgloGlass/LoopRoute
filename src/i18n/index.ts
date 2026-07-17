@@ -3,6 +3,7 @@ import type { RouteWarning } from "../types/route";
 
 export const en = {
   tagline: "A good run, from right here.",
+  planLoop: "Plan a loop",
   locating: "Finding your position",
   locationReady: "Start point ready",
   locationDenied:
@@ -60,10 +61,13 @@ export const en = {
   dark: "Dark",
   language: "Language",
   units: "Units",
+  kilometres: "Kilometres",
+  miles: "Miles",
   pace: "Pace (min/km)",
   clearData: "Clear local data",
   about: "About & attribution",
   privacyShare: "Share a privacy-rounded start",
+  privacyFirst: "Privacy first",
   privacyDetail:
     "Coordinates are rounded to about 100 m. The regenerated route may differ slightly.",
   preciseStart: "Include precise start",
@@ -127,6 +131,7 @@ export type TranslationKey = keyof typeof en;
 
 export const sv: Record<TranslationKey, string> = {
   tagline: "En bra runda, precis härifrån.",
+  planLoop: "Planera en runda",
   locating: "Hämtar din position",
   locationReady: "Startpunkten är klar",
   locationDenied: "Din position kunde inte hämtas. Sök efter en plats eller välj start på kartan.",
@@ -183,10 +188,13 @@ export const sv: Record<TranslationKey, string> = {
   dark: "Mörkt",
   language: "Språk",
   units: "Enheter",
+  kilometres: "Kilometer",
+  miles: "Engelska mil",
   pace: "Tempo (min/km)",
   clearData: "Rensa lokal data",
   about: "Om appen och källor",
   privacyShare: "Dela med avrundad startpunkt",
+  privacyFirst: "Integritet först",
   privacyDetail:
     "Koordinaterna avrundas till cirka 100 m. Den återskapade rundan kan skilja sig något.",
   preciseStart: "Ta med exakt startpunkt",
@@ -231,7 +239,7 @@ export const sv: Record<TranslationKey, string> = {
   viewDirections: "Svänganvisningar",
   unknown: "Okänt",
   paved: "asfalterat",
-  unpaved: "oavslutat",
+  unpaved: "obelagt",
   mapInstruction:
     "Aktivera Välj start och tryck sedan på kartan. På pekskärm kan du även trycka och hålla.",
   startChanged: "Starten ändrades. Tidigare rundor har rensats.",

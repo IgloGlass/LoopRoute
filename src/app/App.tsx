@@ -502,7 +502,7 @@ export default function App() {
               <div className="sheet-intro">
                 <div>
                   <span className="eyebrow">
-                    {state.candidates.length ? t(language, "results") : "PLAN A LOOP"}
+                    {state.candidates.length ? t(language, "results") : t(language, "planLoop")}
                   </span>
                   <h1>
                     {state.candidates.length ? t(language, "results") : t(language, "tagline")}

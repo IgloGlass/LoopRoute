@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { routeWarningText } from ".";
+import { routeWarningText, t } from ".";
 
 describe("route warning translations", () => {
   it("localizes stable warning codes", () => {
@@ -12,5 +12,11 @@ describe("route warning translations", () => {
     expect(routeWarningText("sv", "Distance is outside the 5% target tolerance.")).toBe(
       "Distansen avviker mer än 5 % från målet.",
     );
+  });
+
+  it("uses natural Swedish planner and surface wording", () => {
+    expect(t("sv", "planLoop")).toBe("Planera en runda");
+    expect(t("sv", "unpaved")).toBe("obelagt");
+    expect(t("sv", "privacyFirst")).toBe("Integritet först");
   });
 });

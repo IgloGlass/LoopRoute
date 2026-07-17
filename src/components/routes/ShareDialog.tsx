@@ -28,7 +28,7 @@ export function ShareDialog({
         <header>
           <div>
             <span className="eyebrow">
-              <ShieldCheck size={15} /> Privacy first
+              <ShieldCheck size={15} /> {t(language, "privacyFirst")}
             </span>
             <h2 id="share-title">{t(language, "share")}</h2>
           </div>
