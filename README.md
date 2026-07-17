@@ -18,7 +18,7 @@ The app has no accounts, analytics, database, cookies, paid map provider, or ser
 - 3 km through marathon presets, 1-100 km custom distances, kilometres/miles, and local running pace
 - Road, mixed, and trail-friendly routing preferences plus an avoid-steps preference
 - Three seeded candidates, at most two bounded initial replacements, deduplication, and one-call “Generate another”
-- Route cards with actual distance, target difference, estimated run time, ascent, surfaces, repetition estimate, warnings, and score
+- Route cards with actual distance, target difference, estimated run time, ascent, turns, and surfaces
 - Elevation profile, turn list, GPX 1.1 export, Web Share/clipboard fallback, and privacy-rounded links
 - Live GPS following with completed/remaining estimates, distance-to-route warning, map-follow toggle, and wake lock
 - English and natural Swedish interfaces, light/dark/system themes, offline shell and last-route behavior

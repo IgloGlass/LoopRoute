@@ -2,6 +2,7 @@ import type { RoutePriorities } from "../config/app";
 import type {
   Coordinate,
   EnvironmentSummary,
+  RouteInstruction,
   RouteMetrics,
   RouteWarning,
   SurfaceSummary,
@@ -10,6 +11,12 @@ import { haversineDistance, polylineDistance } from "./distance";
 import { repeatedEdges } from "./repeats";
 
 const clamp = (value: number, min = 0, max = 100) => Math.min(max, Math.max(min, value));
+const DECISION_TURN_TYPES = new Set([0, 1, 2, 3, 4, 5, 7, 9, 12, 13]);
+
+export const countDecisionTurns = (instructions: RouteInstruction[]): number =>
+  instructions.filter((instruction) =>
+    instruction.type === undefined ? false : DECISION_TURN_TYPES.has(instruction.type),
+  ).length;
 
 export function distanceErrorPercent(actual: number, target: number): number {
   return target > 0 ? (Math.abs(actual - target) / target) * 100 : 100;
@@ -21,9 +28,14 @@ export function preferenceScore(
   environment?: EnvironmentSummary,
 ): { score: number; coverage: number } {
   const evidence: Array<number | undefined> = [];
-  // ORS' green evidence combines trees, parks, and rivers. Separate controls still
-  // increase the upstream green weighting, while ranking uses the honest shared signal.
-  if (priorities.water) evidence.push(environment?.greenPercent);
+  // ORS' green evidence combines trees, parks, and rivers. For water, sustained
+  // high-green travel is a better proxy for following a shoreline than a brief pass-by.
+  if (priorities.water)
+    evidence.push(
+      environment?.greenContinuityPercent === undefined
+        ? undefined
+        : environment.greenContinuityPercent * 0.75 + (environment.greenPercent ?? 50) * 0.25,
+    );
   if (priorities.woodland) evidence.push(environment?.greenPercent);
   if (priorities.unpaved) evidence.push(surface?.unpavedPercent);
   if (priorities.quiet) evidence.push(environment?.quietPercent);
@@ -43,6 +55,7 @@ export function scoreRoute(
   priorities: RoutePriorities,
   surface?: SurfaceSummary,
   environment?: EnvironmentSummary,
+  instructions: RouteInstruction[] = [],
 ): RouteMetrics {
   const actual = polylineDistance(coordinates);
   const error = distanceErrorPercent(actual, targetDistanceMeters);
@@ -55,8 +68,15 @@ export function scoreRoute(
   const repeatScore = clamp(100 - repeatedPercent * 2.5 - directedPercent * 0.75);
   const closureScore = clamp(100 - Math.max(0, closure - 10) * 1.5);
   const preference = preferenceScore(priorities, surface, environment);
+  const turnCount = countDecisionTurns(instructions);
+  const turnsPerKilometre = actual > 0 ? turnCount / (actual / 1000) : 0;
+  const turnScore = clamp(100 - turnsPerKilometre * 25);
   const overallScore = Math.round(
-    0.32 * distanceScore + 0.33 * repeatScore + 0.1 * closureScore + 0.25 * preference.score,
+    0.29 * distanceScore +
+      0.28 * repeatScore +
+      0.08 * closureScore +
+      0.2 * preference.score +
+      0.15 * turnScore,
   );
   const quality =
     error <= 3 && repeatedPercent <= 10 && closure <= 50
@@ -79,6 +99,9 @@ export function scoreRoute(
     closureScore,
     preferenceScore: preference.score,
     preferenceDataCoverage: preference.coverage,
+    turnCount,
+    turnsPerKilometre,
+    turnScore,
     overallScore,
     quality,
     warnings,

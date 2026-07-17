@@ -17,6 +17,7 @@ export interface SurfaceSummary {
 
 export interface EnvironmentSummary {
   greenPercent?: number;
+  greenContinuityPercent?: number;
   quietPercent?: number;
 }
 
@@ -40,6 +41,9 @@ export interface RouteMetrics {
   closureScore: number;
   preferenceScore: number;
   preferenceDataCoverage: number;
+  turnCount?: number;
+  turnsPerKilometre?: number;
+  turnScore?: number;
   overallScore: number;
   quality: "excellent" | "good" | "compromised";
   warnings: RouteWarning[];

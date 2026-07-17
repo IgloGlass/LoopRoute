@@ -160,10 +160,6 @@ export default function App() {
   const distanceUnitMeters = preferences.units === "mi" ? 1609.344 : 1000;
   const maxCustomDistance = 100_000 / distanceUnitMeters;
   const selected = state.candidates.find((route) => route.id === state.selectedId);
-  const bestScore = Math.max(...state.candidates.map((route) => route.metrics.overallScore), 0);
-  const allCandidatesNeedReview =
-    state.candidates.length > 0 &&
-    state.candidates.every((route) => route.metrics.quality === "compromised");
   const following = state.stage === "following";
   const onFollowError = useCallback(
     (reason: string) =>
@@ -570,19 +566,6 @@ export default function App() {
     setUndoRoutes(undefined);
   };
 
-  const tryShorterDistance = () => {
-    const shorterDistance = Math.max(1_000, Math.round((targetDistance * 0.75) / 100) * 100);
-    setTargetDistance(shorterDistance);
-    setCustom(distanceInputValue(shorterDistance, preferences.units));
-    dispatch({ type: "CLEAR" });
-  };
-
-  const moveRouteStart = () => {
-    dispatch({ type: "CLEAR" });
-    setSetStartMode(true);
-    setExpanded(false);
-  };
-
   return (
     <main className={`app-shell stage-${state.stage}`}>
       <Suspense
@@ -771,7 +754,11 @@ export default function App() {
                 </div>
                 {state.candidates.length > 0 && (
                   <span className="route-count">
-                    {state.candidates.length} {t(language, "routesExplored")}
+                    {state.candidates.length}{" "}
+                    {t(
+                      language,
+                      state.candidates.length === 1 ? "routeExplored" : "routesExplored",
+                    )}
                   </span>
                 )}
               </div>
@@ -1048,19 +1035,6 @@ export default function App() {
 
               {state.candidates.length > 0 && (
                 <div className="results-panel">
-                  {allCandidatesNeedReview && (
-                    <aside className="quality-recovery" role="status">
-                      <AlertTriangle aria-hidden />
-                      <div>
-                        <strong>{t(language, "noCloseMatch")}</strong>
-                        <p>{t(language, "noCloseMatchHint")}</p>
-                        <div>
-                          <button onClick={tryShorterDistance}>{t(language, "tryShorter")}</button>
-                          <button onClick={moveRouteStart}>{t(language, "moveStart")}</button>
-                        </div>
-                      </div>
-                    </aside>
-                  )}
                   <div
                     className="route-list"
                     role="radiogroup"
@@ -1072,13 +1046,9 @@ export default function App() {
                         route={route}
                         index={index}
                         selected={route.id === state.selectedId}
-                        best={route.metrics.overallScore === bestScore}
                         units={preferences.units}
                         language={language}
                         paceSecondsPerKm={preferences.paceSecondsPerKm}
-                        showPreferenceMatch={Object.values(preferences.routePriorities).some(
-                          Boolean,
-                        )}
                         onSelect={() => dispatch({ type: "SELECT", id: route.id })}
                       />
                     ))}
