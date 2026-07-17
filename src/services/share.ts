@@ -1,4 +1,9 @@
-import type { DisplayUnits, RouteMode } from "../config/app";
+import {
+  DEFAULT_ROUTE_PRIORITIES,
+  type DisplayUnits,
+  type RouteMode,
+  type RoutePriorities,
+} from "../config/app";
 
 export interface SharePlan {
   start: [number, number];
@@ -7,6 +12,7 @@ export interface SharePlan {
   avoidSteps: boolean;
   seed: number;
   units: DisplayUnits;
+  priorities: RoutePriorities;
 }
 
 export function buildShareUrl(
@@ -23,6 +29,8 @@ export function buildShareUrl(
   url.searchParams.set("steps", plan.avoidSteps ? "1" : "0");
   url.searchParams.set("seed", String(plan.seed));
   url.searchParams.set("units", plan.units);
+  for (const [priority, enabled] of Object.entries(plan.priorities))
+    if (enabled) url.searchParams.set(priority, "1");
   if (precise) url.searchParams.set("precise", "1");
   return url.toString();
 }
@@ -58,6 +66,13 @@ export function parseShareUrl(search: string): SharePlan | undefined {
     mode: mode as RouteMode,
     avoidSteps: params.get("steps") === "1",
     units: units as DisplayUnits,
+    priorities: {
+      ...DEFAULT_ROUTE_PRIORITIES,
+      water: params.get("water") === "1",
+      woodland: params.get("woodland") === "1",
+      unpaved: params.get("unpaved") === "1",
+      quiet: params.get("quiet") === "1",
+    },
   };
 }
 

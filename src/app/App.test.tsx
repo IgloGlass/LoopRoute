@@ -95,7 +95,7 @@ describe("LoopRoute application", () => {
     render(<App />);
     await userEvent.click(await screen.findByRole("button", { name: /Find my loops/ }));
     await waitFor(() =>
-      expect(screen.getAllByRole("button", { name: /Route [A-C]/ }).length).toBeGreaterThanOrEqual(
+      expect(screen.getAllByRole("radio", { name: /Route [A-C]/ }).length).toBeGreaterThanOrEqual(
         1,
       ),
     );
@@ -110,6 +110,48 @@ describe("LoopRoute application", () => {
     expect(screen.getByRole("heading", { name: "Inställningar" })).toBeInTheDocument();
     await userEvent.selectOptions(selects[1], "mi");
     expect(selects[1]).toHaveValue("mi");
+  });
+
+  it("traps dialog focus, closes with Escape, and restores the trigger", async () => {
+    render(<App />);
+    const settingsButton = await screen.findByRole("button", { name: "Settings" });
+    await userEvent.click(settingsButton);
+    expect(screen.getByRole("button", { name: "Close" })).toHaveFocus();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(settingsButton).toHaveFocus();
+  });
+
+  it("suggests addresses after a debounce and supports keyboard selection", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            results: [
+              {
+                id: "stockholm",
+                label: "Stockholm, Sweden",
+                locality: "Stockholm",
+                country: "Sweden",
+                latitude: 59.3293,
+                longitude: 18.0686,
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<App />);
+    const search = await screen.findByRole("combobox", {
+      name: "Search town, park or address",
+    });
+    await userEvent.type(search, "Stockholm");
+    expect(await screen.findByRole("option", { name: /Stockholm, Sweden/ })).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await userEvent.keyboard("{Enter}");
+    expect(search).toHaveValue("Stockholm, Sweden");
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
   });
 
   it("announces offline state and disables generation", async () => {

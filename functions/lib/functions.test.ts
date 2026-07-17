@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildRouteUpstream } from "./ors";
-import { pointCount, validateRouteRequest } from "./validation";
+import { validateRouteRequest } from "./validation";
 
 const valid = {
   start: { latitude: 59.3, longitude: 18.1 },
@@ -8,6 +8,8 @@ const valid = {
   seed: 42,
   mode: "mixed",
   avoidSteps: true,
+  priorities: { water: true, woodland: false, unpaved: false, quiet: true },
+  roundTripPoints: 3,
 } as const;
 
 describe("Cloudflare request logic", () => {
@@ -22,11 +24,9 @@ describe("Cloudflare request logic", () => {
     ).toBeUndefined();
     expect(validateRouteRequest({ ...valid, targetDistanceMeters: 100001 })).toBeUndefined();
   });
-  it("selects bounded point counts", () => {
-    expect(pointCount(3000)).toBe(5);
-    expect(pointCount(10000)).toBe(7);
-    expect(pointCount(20000)).toBe(9);
-    expect(pointCount(40000)).toBe(12);
+  it("rejects shape controls outside the bounded range", () => {
+    expect(validateRouteRequest({ ...valid, roundTripPoints: 1 })).toBeUndefined();
+    expect(validateRouteRequest({ ...valid, roundTripPoints: 7 })).toBeUndefined();
   });
   it("builds an allow-listed pedestrian request without a key", () => {
     const upstream = buildRouteUpstream(valid);
@@ -35,9 +35,9 @@ describe("Cloudflare request logic", () => {
     );
     expect(JSON.stringify(upstream)).not.toContain("key");
     expect(upstream.body.options.round_trip.length).toBe(10000);
-    expect(upstream.body.options.profile_params.weightings).toEqual({
-      green: 0.65,
-      quiet: 0.55,
-    });
+    expect(upstream.body.options.round_trip.points).toBe(3);
+    // Hosted ORS rejects profile weightings when combined with round trips.
+    // Preference scoring remains client-side, using the requested extra data.
+    expect(upstream.body.options).not.toHaveProperty("profile_params");
   });
 });

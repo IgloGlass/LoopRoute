@@ -2,12 +2,21 @@ export const MAX_SEED = 2_147_483_647;
 export const MAX_BODY_BYTES = 4_096;
 export type RouteMode = "road" | "mixed" | "trail";
 
+export interface ValidRoutePriorities {
+  water: boolean;
+  woodland: boolean;
+  unpaved: boolean;
+  quiet: boolean;
+}
+
 export interface ValidRouteRequest {
   start: { latitude: number; longitude: number };
   targetDistanceMeters: number;
   seed: number;
   mode: RouteMode;
   avoidSteps: boolean;
+  priorities: ValidRoutePriorities;
+  roundTripPoints: number;
 }
 
 const exactKeys = (value: Record<string, unknown>, expected: string[]) => {
@@ -21,7 +30,17 @@ const exactKeys = (value: Record<string, unknown>, expected: string[]) => {
 export function validateRouteRequest(input: unknown): ValidRouteRequest | undefined {
   if (!input || typeof input !== "object" || Array.isArray(input)) return undefined;
   const value = input as Record<string, unknown>;
-  if (!exactKeys(value, ["start", "targetDistanceMeters", "seed", "mode", "avoidSteps"]))
+  if (
+    !exactKeys(value, [
+      "start",
+      "targetDistanceMeters",
+      "seed",
+      "mode",
+      "avoidSteps",
+      "priorities",
+      "roundTripPoints",
+    ])
+  )
     return undefined;
   const start = value.start as Record<string, unknown>;
   if (
@@ -63,12 +82,30 @@ export function validateRouteRequest(input: unknown): ValidRouteRequest | undefi
     typeof value.avoidSteps !== "boolean"
   )
     return undefined;
+  const priorities = value.priorities as Record<string, unknown>;
+  if (
+    !priorities ||
+    typeof priorities !== "object" ||
+    Array.isArray(priorities) ||
+    !exactKeys(priorities, ["water", "woodland", "unpaved", "quiet"]) ||
+    !Object.values(priorities).every((priority) => typeof priority === "boolean")
+  )
+    return undefined;
+  if (
+    typeof value.roundTripPoints !== "number" ||
+    !Number.isSafeInteger(value.roundTripPoints) ||
+    value.roundTripPoints < 2 ||
+    value.roundTripPoints > 6
+  )
+    return undefined;
   return {
     start: { latitude, longitude },
     targetDistanceMeters: value.targetDistanceMeters,
     seed: value.seed,
     mode: value.mode as RouteMode,
     avoidSteps: value.avoidSteps,
+    priorities: priorities as unknown as ValidRoutePriorities,
+    roundTripPoints: value.roundTripPoints,
   };
 }
 
@@ -81,10 +118,3 @@ export const validCoordinate = (
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= min && parsed <= max ? parsed : undefined;
 };
-
-export function pointCount(distanceMeters: number): number {
-  if (distanceMeters < 8_000) return 5;
-  if (distanceMeters < 15_000) return 7;
-  if (distanceMeters < 30_000) return 9;
-  return 12;
-}

@@ -1,9 +1,11 @@
 import {
   STORAGE_KEY,
   STORAGE_VERSION,
+  DEFAULT_ROUTE_PRIORITIES,
   type DisplayUnits,
   type Language,
   type RouteMode,
+  type RoutePriorities,
   type Theme,
 } from "../config/app";
 import type { NormalizedRoute } from "../types/route";
@@ -15,6 +17,7 @@ export interface Preferences {
   paceSecondsPerKm: number;
   mode: RouteMode;
   avoidSteps: boolean;
+  routePriorities: RoutePriorities;
 }
 
 export interface StoredState {
@@ -35,6 +38,7 @@ export function defaultPreferences(): Preferences {
     paceSecondsPerKm: 360,
     mode: "mixed",
     avoidSteps: true,
+    routePriorities: { ...DEFAULT_ROUTE_PRIORITIES },
   };
 }
 
@@ -48,7 +52,14 @@ export function loadState(): StoredState {
     return {
       ...fallback,
       ...parsed,
-      preferences: { ...fallback.preferences, ...parsed.preferences },
+      preferences: {
+        ...fallback.preferences,
+        ...parsed.preferences,
+        routePriorities: {
+          ...fallback.preferences.routePriorities,
+          ...parsed.preferences.routePriorities,
+        },
+      },
     };
   } catch {
     return fallback;

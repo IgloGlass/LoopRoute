@@ -20,6 +20,8 @@ export type AppAction =
   | { type: "START_CHANGED"; start: [number, number]; message?: string }
   | { type: "GENERATING"; requestId: number }
   | { type: "RESULTS"; requestId: number; candidates: NormalizedRoute[]; error?: string }
+  | { type: "APPEND_RESULT"; candidate: NormalizedRoute }
+  | { type: "RESTORE_RESULTS"; candidates: NormalizedRoute[]; selectedId?: string }
   | { type: "SELECT"; id: string }
   | { type: "FOLLOW" }
   | { type: "STOP_FOLLOW" }
@@ -72,6 +74,22 @@ export function appReducer(state: AppState, action: AppAction): AppState {
             selectedId: action.candidates[0]?.id,
             error: action.error,
           };
+    case "APPEND_RESULT":
+      return {
+        ...state,
+        stage: "results",
+        candidates: [...state.candidates, action.candidate],
+        selectedId: action.candidate.id,
+        error: undefined,
+      };
+    case "RESTORE_RESULTS":
+      return {
+        ...state,
+        stage: "results",
+        candidates: action.candidates,
+        selectedId: action.selectedId ?? action.candidates[0]?.id,
+        error: undefined,
+      };
     case "SELECT":
       return { ...state, stage: "results", selectedId: action.id };
     case "FOLLOW":

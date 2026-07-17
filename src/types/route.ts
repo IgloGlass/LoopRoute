@@ -1,4 +1,4 @@
-import type { RouteMode } from "../config/app";
+import type { RouteMode, RoutePriorities } from "../config/app";
 
 export type Coordinate = [number, number] | [number, number, number];
 
@@ -13,6 +13,11 @@ export interface SurfaceSummary {
   unpavedPercent: number;
   unknownPercent: number;
   dominant: string;
+}
+
+export interface EnvironmentSummary {
+  greenPercent?: number;
+  quietPercent?: number;
 }
 
 export interface RepeatMetrics {
@@ -30,10 +35,11 @@ export interface RouteMetrics {
   closureDistanceMeters: number;
   directedRepeatPercent: number;
   repeatedRoutePercent: number;
-  compactnessScore: number;
   distanceScore: number;
   repeatScore: number;
   closureScore: number;
+  preferenceScore: number;
+  preferenceDataCoverage: number;
   overallScore: number;
   quality: "excellent" | "good" | "compromised";
   warnings: RouteWarning[];
@@ -52,6 +58,7 @@ export interface NormalizedRoute {
   coordinates: Coordinate[];
   instructions: RouteInstruction[];
   surfaceSummary?: SurfaceSummary;
+  environmentSummary?: EnvironmentSummary;
   provider: "openrouteservice";
   profile: "foot-walking" | "foot-hiking";
   metrics: RouteMetrics;
@@ -63,4 +70,6 @@ export interface RouteRequest {
   seed: number;
   mode: RouteMode;
   avoidSteps: boolean;
+  priorities: RoutePriorities;
+  roundTripPoints: number;
 }

@@ -22,10 +22,11 @@ const route = {
     closureDistanceMeters: 0,
     directedRepeatPercent: 0,
     repeatedRoutePercent: 0,
-    compactnessScore: 80,
     distanceScore: 60,
     repeatScore: 100,
     closureScore: 100,
+    preferenceScore: 100,
+    preferenceDataCoverage: 100,
     overallScore: 85,
     quality: "excellent",
     warnings: [],
@@ -48,12 +49,16 @@ describe("GPX and sharing", () => {
         avoidSteps: true,
         seed: 42,
         units: "km",
+        priorities: { water: true, woodland: false, unpaved: true, quiet: false },
       },
       false,
       "https://example.com/",
     );
     expect(url).toContain("lat=59.329");
-    expect(parseShareUrl(new URL(url).search)?.seed).toBe(42);
+    expect(parseShareUrl(new URL(url).search)).toMatchObject({
+      seed: 42,
+      priorities: { water: true, unpaved: true },
+    });
   });
   it("rejects invalid shared inputs", () =>
     expect(

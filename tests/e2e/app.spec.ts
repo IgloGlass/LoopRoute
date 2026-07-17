@@ -90,9 +90,9 @@ test("GPS success generates three routes, selects one and exports GPX", async ({
   const generateButton = page.getByRole("button", { name: /Find my loops/ });
   await expect(generateButton).toBeEnabled();
   await generateButton.click();
-  await expect(page.getByRole("button", { name: /Route A/ })).toBeVisible();
-  await expect(page.getByRole("button", { name: /Route C/ })).toBeVisible();
-  await page.getByRole("button", { name: /Route B/ }).click();
+  await expect(page.getByRole("radio", { name: /Route A/ })).toBeVisible();
+  await expect(page.getByRole("radio", { name: /Route C/ })).toBeVisible();
+  await page.getByRole("radio", { name: /Route B/ }).click();
   await expect(page.getByText("Selected route")).toBeVisible();
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Export GPX" }).click();
@@ -107,10 +107,22 @@ test("GPS denial falls back to explicit address search", async ({ browser }) => 
   await page.goto("/");
   await expect(page.getByText(/Location access was unavailable/)).toBeVisible();
   await page.getByPlaceholder("Search town, park or address").fill("Stockholm");
-  await page.getByRole("button", { name: "Search" }).click();
-  await page.getByRole("button", { name: /Stockholm, Sweden/ }).click();
+  await expect(page.getByRole("option", { name: /Stockholm, Sweden/ })).toBeVisible();
+  await page.getByPlaceholder("Search town, park or address").press("Enter");
+  await expect(page.getByRole("listbox")).toBeHidden();
   await expect(page.getByRole("button", { name: /Find my loops/ })).toBeEnabled();
   await context.close();
+});
+
+test("dialogs trap focus, close with Escape, and restore their trigger", async ({ page }) => {
+  await page.goto("/");
+  const settings = page.getByRole("button", { name: "Settings" });
+  await settings.click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Close" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toBeHidden();
+  await expect(settings).toBeFocused();
 });
 
 test("map start selection and privacy-preserving shared link work", async ({ page }) => {
@@ -134,10 +146,32 @@ test("shared route parameters and one-call generate another flow", async ({ page
   await page.goto("/?lat=59.329&lng=18.069&distance=7500&mode=trail&steps=1&seed=12345&units=km");
   await expect(page.getByText(/shared route plan was opened/i)).toBeVisible();
   await page.getByRole("button", { name: "Regenerate shared route" }).click();
-  await expect(page.getByRole("button", { name: /Route A/ })).toBeVisible();
+  await expect(page.getByRole("radio", { name: /Route A/ })).toBeVisible();
   expect(calls).toBe(1);
   await page.getByRole("button", { name: "Generate another" }).click();
   await expect.poll(() => calls).toBe(2);
+});
+
+test("route priorities and shape-neutral portfolio reach the same-origin route API", async ({
+  page,
+}) => {
+  const requests: Array<{
+    priorities: Record<string, boolean>;
+    roundTripPoints: number;
+  }> = [];
+  page.on("request", (request) => {
+    if (request.url().includes("/api/route")) requests.push(request.postDataJSON());
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Near water" }).click();
+  await page.getByRole("button", { name: "Unpaved" }).click();
+  await page.getByRole("button", { name: /Find my loops/ }).click();
+  await expect(page.getByRole("radio", { name: /Route C/ })).toBeVisible();
+  expect(requests.length).toBeGreaterThanOrEqual(3);
+  expect(requests.length).toBeLessThanOrEqual(5);
+  expect(requests.slice(0, 3).map((request) => request.roundTripPoints)).toEqual([2, 3, 4]);
+  expect(requests.every((request) => request.priorities.water)).toBe(true);
+  expect(requests.every((request) => request.priorities.unpaved)).toBe(true);
 });
 
 test("mobile layout has no horizontal overflow and supports live follow", async ({
@@ -149,12 +183,72 @@ test("mobile layout has no horizontal overflow and supports live follow", async 
   await page.getByRole("button", { name: "Start following" }).click();
   await expect(page.getByText("Following Route")).toBeVisible();
   await expect(page.getByText("Distance to route")).toBeVisible();
+  const followSheetHeight = await page
+    .locator(".bottom-sheet")
+    .evaluate((element) => element.getBoundingClientRect().height);
+  expect(followSheetHeight).toBeLessThanOrEqual(page.viewportSize()!.height * 0.45);
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
   );
   expect(overflow).toBeLessThanOrEqual(0);
   await page.getByRole("button", { name: "Stop following" }).click();
   await expect(page.getByText("Selected route")).toBeVisible();
+});
+
+test("mobile sheet drag reliably reveals the map and keeps large touch targets", async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-chromium", "Mobile-only gesture assertion");
+  await page.goto("/");
+  const handle = page.locator(".sheet-handle");
+  const box = await handle.boundingBox();
+  expect(box).not.toBeNull();
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2 + 100, {
+    steps: 6,
+  });
+  await page.mouse.up();
+  await expect(handle).toHaveAttribute("aria-expanded", "false");
+  await expect(page.locator(".sheet-scroll")).toHaveAttribute("aria-hidden", "true");
+  const targets = await page
+    .locator(".sheet-handle, .topbar .icon-button")
+    .evaluateAll((elements) =>
+      elements.map((element) => {
+        const rect = element.getBoundingClientRect();
+        return { width: rect.width, height: rect.height };
+      }),
+    );
+  expect(targets.every(({ width, height }) => width >= 44 && height >= 44)).toBe(true);
+});
+
+test("desktop route options remain fully visible without a horizontal carousel", async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-chromium", "Desktop-only layout assertion");
+  await page.goto("/");
+  await page.getByRole("button", { name: /Find my loops/ }).click();
+  await expect(page.getByRole("radio", { name: /Route C/ })).toBeVisible();
+  const routeList = await page.locator(".route-list").evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      display: style.display,
+      scrollWidth: element.scrollWidth,
+      clientWidth: element.clientWidth,
+    };
+  });
+  expect(routeList.display).toBe("grid");
+  expect(routeList.scrollWidth).toBeLessThanOrEqual(routeList.clientWidth);
+});
+
+test("cleared results can be restored from the undo toast", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: /Find my loops/ }).click();
+  await expect(page.getByRole("radio", { name: /Route A/ })).toBeVisible();
+  await page.getByRole("button", { name: "Clear route" }).click();
+  await expect(page.getByText("Route cleared")).toBeVisible();
+  await page.getByRole("button", { name: "Undo" }).click();
+  await expect(page.getByRole("radio", { name: /Route A/ })).toBeVisible();
 });
 
 test("offline mode clearly disables route generation", async ({ page, context }) => {
